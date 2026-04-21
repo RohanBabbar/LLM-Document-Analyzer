@@ -3,6 +3,7 @@ import json
 import logging
 import google.generativeai as genai
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+import asyncio
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -29,10 +30,9 @@ from google.api_core.exceptions import NotFound
     wait=wait_exponential(multiplier=1, min=2, max=10),
     before_sleep=lambda retry_state: logger.warning(f"Retrying LLM call... Attempt {retry_state.attempt_number}")
 )
-def analyze_chunk_with_llm(text_chunk: str, api_key: str) -> dict:
+async def analyze_chunk_with_llm(text_chunk: str, api_key: str) -> dict:
     """
-    Sends a chunk of text to Gemini API and requests JSON output.
-    Implements retry logic with exponential backoff via tenacity.
+    Sends a chunk of text to Gemini API asynchronously and requests JSON output.
     """
     genai.configure(api_key=api_key)
     
@@ -42,7 +42,7 @@ def analyze_chunk_with_llm(text_chunk: str, api_key: str) -> dict:
     logger.info(f"Sending chunk to LLM ({len(text_chunk)} characters)...")
     
     try:
-        response = model.generate_content(
+        response = await model.generate_content_async(
             text_chunk,
             generation_config=genai.types.GenerationConfig(
                 temperature=0.2,
@@ -51,14 +51,12 @@ def analyze_chunk_with_llm(text_chunk: str, api_key: str) -> dict:
         )
     except NotFound as e:
         logger.error(f"Model not found. Error: {e}")
-        # Print available models
         for m in genai.list_models():
             if 'generateContent' in m.supported_generation_methods:
                 logger.info(f"Available model: {m.name}")
         raise ValueError("The requested Gemini model is not available for this API key.")
 
     
-    # Parse the response text as JSON
     try:
         response_text = response.text.strip()
         parsed_json = json.loads(response_text)
@@ -68,7 +66,6 @@ def analyze_chunk_with_llm(text_chunk: str, api_key: str) -> dict:
         raise ValueError(f"LLM returned invalid JSON: {e}")
     except Exception as e:
         logger.error(f"Error calling LLM: {e}")
-        # If we get a NotFound error, let's list the available models to debug
         if "NotFound" in str(e) or "404" in str(e):
             logger.info("Attempting to list available models to diagnose NotFound error...")
             try:

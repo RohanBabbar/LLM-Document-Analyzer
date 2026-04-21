@@ -1,6 +1,7 @@
 import os
 import logging
 from dotenv import load_dotenv
+import asyncio
 
 from utils import extract_text_from_file, extract_text_from_url, chunk_text, save_to_json, save_to_csv
 from llm import analyze_chunk_with_llm
@@ -10,14 +11,14 @@ from report import generate_summary_report
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-def process_source(source: str, api_key: str) -> dict | None:
+async def process_source(source: str, api_key: str) -> dict | None:
     """
     Processes a single source (file or URL) and returns the extracted structured data.
     """
     logger.info(f"Processing source: {source}")
     try:
         if source.startswith("http://") or source.startswith("https://"):
-            text = extract_text_from_url(source)
+            text = await extract_text_from_url(source)
         else:
             text = extract_text_from_file(source)
             
@@ -34,7 +35,7 @@ def process_source(source: str, api_key: str) -> dict | None:
         
         logger.info(f"Extracted {len(text)} characters. Using first chunk of {len(main_chunk)} characters.")
         
-        result_json = analyze_chunk_with_llm(main_chunk, api_key)
+        result_json = await analyze_chunk_with_llm(main_chunk, api_key)
         
         # Add source identifier
         result_json['source'] = source
@@ -44,8 +45,7 @@ def process_source(source: str, api_key: str) -> dict | None:
         logger.error(f"Failed to process {source}: {e}")
         return None
 
-def main():
-    # Load environment variables (API Key)
+async def main():
     load_dotenv(override=True)
     api_key = os.getenv("GEMINI_API_KEY")
     
@@ -53,7 +53,6 @@ def main():
         logger.error("GEMINI_API_KEY not found or not set properly in .env")
         return
         
-    # List of inputs to process
     inputs = [
         "https://en.wikipedia.org/wiki/Large_language_model",
         "sample.txt",
@@ -68,16 +67,18 @@ def main():
     
     all_results = []
     
+    tasks = []
     for source in inputs:
-        # We skip sample.pdf if it doesn't exist just so the script doesn't error out entirely,
-        # but the assignment mentions handling multiple files gracefully.
         if source == "sample.pdf" and not os.path.exists(source):
             logger.warning("sample.pdf not found in local directory. Skipping.")
             continue
-            
-        data = process_source(source, api_key)
-        if data:
-            all_results.append(data)
+        tasks.append(process_source(source, api_key))
+        
+    logger.info("Starting concurrent processing...")
+    results = await asyncio.gather(*tasks)
+    
+    all_results = [r for r in results if r is not None]
+
             
     if all_results:
         logger.info("Saving outputs...")
@@ -89,4 +90,4 @@ def main():
         logger.warning("No successful results to save.")
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

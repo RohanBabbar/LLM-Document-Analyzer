@@ -5,6 +5,8 @@ import requests
 from bs4 import BeautifulSoup
 import fitz  # PyMuPDF
 import os
+import aiohttp
+import asyncio
 
 def extract_text_from_file(filepath: str) -> str:
     """Extracts text from a local .txt or .pdf file."""
@@ -25,24 +27,24 @@ def extract_text_from_file(filepath: str) -> str:
     else:
         raise ValueError(f"Unsupported file format: {ext}")
 
-def extract_text_from_url(url: str) -> str:
-    """Fetches and extracts main text content from a URL."""
+async def extract_text_from_url(url: str) -> str:
+    """Fetches and extracts main text content from a URL asynchronously."""
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
     }
-    response = requests.get(url, headers=headers, timeout=10)
-    response.raise_for_status()
     
-    soup = BeautifulSoup(response.text, 'html.parser')
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, headers=headers, timeout=10) as response:
+            response.raise_for_status()
+            html = await response.text()
+            
+    soup = BeautifulSoup(html, 'html.parser')
     
-    # Remove script and style elements
     for script in soup(["script", "style", "nav", "footer", "header"]):
         script.decompose()
         
-    # Get text
     text = soup.get_text(separator=' ', strip=True)
     return text
-
 def chunk_text(text: str, max_chars: int = 15000) -> list[str]:
     """Simple chunking by character length to avoid exceeding context window."""
     # A simple approach to chunking without relying on complex tokenizers or frameworks
